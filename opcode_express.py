@@ -549,6 +549,6 @@ class opcode_sha3 :
 
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
-
+        
         return recurse_make_express(opcode_data1)
 

@@ -132,6 +132,7 @@ class executor :
                 true_condition_check_success = False
                 false_condition_check_success = True            
         else :
+            #print 'solver_true.add(%s)' % (condition_express)
             exec('solver_true.add(%s)' % (condition_express))
             exec('solver_false.add(%s)' % (not_condition_express))
 
@@ -155,6 +156,8 @@ class executor :
 
         self.state_object.add_execute_code(opcode_object)
         self.execute_context.add_instrutment_count()
+
+        print hex(opcode_object.get_address()),opcode_name,opcode_object.get_opcode_data()
 
         if opcode_name.startswith('PUSH') :
             self.state_object.stack.push_data(opcode_object.get_opcode_data(0))
@@ -215,8 +218,9 @@ class executor :
             sstore_target_data = self.state_object.stack.pop_data()
 
             self.state_object.store.set(sstore_target_address,sstore_target_data)
-
+            
             if opcode_express.is_input(sstore_target_address) or opcode_express.is_take_input(sstore_target_address) :
+                vuln_checker.add_balance_check(self.state_object,sstore_target_address,sstore_target_data)
                 vuln_checker.transfer_overflow_check(self.state_object,sstore_target_address,sstore_target_data)
 
             next_pc = opcode_object.get_address() + 1
@@ -287,15 +291,15 @@ class executor :
 
             next_pc = opcode_object.get_address() + 1
         elif 'LT' == opcode_name :
-            lt_right_data = self.state_object.stack.pop_data()
             lt_left_data = self.state_object.stack.pop_data()
+            lt_right_data = self.state_object.stack.pop_data()
 
             self.state_object.stack.push_data(opcode_express.opcode_lt(lt_left_data,lt_right_data))
 
             next_pc = opcode_object.get_address() + 1
         elif 'GT' == opcode_name :
-            gt_right_data = self.state_object.stack.pop_data()
             gt_left_data = self.state_object.stack.pop_data()
+            gt_right_data = self.state_object.stack.pop_data()
 
             self.state_object.stack.push_data(opcode_express.opcode_gt(gt_left_data,gt_right_data))
 
@@ -330,6 +334,8 @@ class executor :
 
             self.execute_context.add_branch_count()
 
+            print check_condition.make_express()
+
             true_condition,false_condition = self.fork_branch(check_condition)
 
             if False == true_condition == false_condition :
@@ -339,19 +345,21 @@ class executor :
                 
                 return execute_death_path()
 
-            #print check_condition.make_express()
             #print true_condition,false_condition,check_condition.make_express()
 
             if not opcode_express.is_take_input(check_condition) :  #  check is real true/false condition ..
                 if true_condition :
                     true_branch_executor = self.copy_executor()
+                    print 'jump true'
 
                     true_branch_executor.run(jump_next_pc_address)
                 elif false_condition :
                     false_branch_executor = self.copy_executor()
+                    print 'jump false'
 
                     false_branch_executor.run(nojump_next_pc_address)
             else :
+                print 'jump true and false:',true_condition,false_condition 
                 if true_condition :
                     true_branch_executor = self.copy_executor()
 
@@ -587,7 +595,9 @@ class executor :
         elif opcode_name.startswith('LOG') :
             memory_start = self.state_object.stack.pop_data()
             memory_size = self.state_object.stack.pop_data()
+
             log_count = int(opcode_name[ 3 : ])
+
             for i in range(log_count) :
                 self.state_object.stack.pop_data()
 
@@ -626,6 +636,52 @@ class executor :
 
 class vuln_checker :
 
+    @staticmethod
+    def add_balance_check(state_object,address_object,data_object) :
+        check_result = False
+
+        if  not opcode_express.is_take_input(address_object) and \
+            not opcode_express.is_input(address_object) :
+            return False
+
+        import z3
+
+        z3_init_list = opcode_express.make_z3_init()
+
+        for init_index in z3_init_list :
+            exec(init_index)
+
+        solver = z3.Solver()
+
+        for express_index in state_object.express_list :
+            express_data = express_index.make_express()
+
+            exec('solver.add(%s)' % (express_data))
+
+        if not opcode_express.is_take_input(data_object) and not opcode_express.is_input(data_object):
+            condition_value = execute_real_express(data_object)
+            
+            if condition_value > 0 :
+                check_result = True
+        else :
+            address_express = address_object.make_express()
+            data_express = data_object.make_express()
+
+            exec('solver.add((%s) == %s)' % (address_express,opcode_express.DEFAULT_INPUT_ADDRESS))
+            exec('solver.add(%s > 0)' % (data_express))
+
+            if z3.sat == solver.check() :
+                print '\033[1;31m---- add balance Vuln Check ! ----\033[0m'
+                print 'Auto Building Test Payload :'
+
+                check_result = True
+                model_data = solver.model()
+
+                for key_index in model_data :
+                    print '\033[1;34m>>',key_index,hex(int(str(model_data[key_index]))),'\033[0m'
+
+        return check_result
+    
     @staticmethod
     def transfer_overflow_check(state_object,address_object,check_object) :
         check_result = False
