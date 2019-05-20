@@ -367,12 +367,30 @@ class store :
 
 class state_object :
 
+    class execute_state_value :
+
+        UNRUNNING = 0
+        RUNNING = 1
+        ACTIVE_PATH = 2  #  is a valid path
+        DEAD_PATH = 3    #  is a unvalid path
+
     def __init__(self) :
         self.memory = memory()
         self.stack = stack()
         self.store = store()
         self.code_record = []
         self.express_list = []
+        self.execute_state = state_object.execute_state_value.UNRUNNING
+
+    def set_execute_state(self,value) :
+        self.execute_state = value
+
+    def get_execute_state(self,) :
+        return self.execute_state
+
+    def clean_stack_and_memory(self) :
+        self.memory = memory()
+        self.stack = stack()
 
     def add_execute_code(self,opcode_object) :
         self.code_record.append((opcode_object,copy.deepcopy(self.stack.memory_data)))

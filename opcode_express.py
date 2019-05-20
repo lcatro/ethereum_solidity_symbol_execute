@@ -166,6 +166,7 @@ def recurse_make_express(opcode_data) :
 
 def replace_express_to_logic_express(express_data) :
     express_data = express_data.replace('z3.Not','not')
+    express_data = express_data.replace('z3.UDiv','div')
 
     return express_data
 
@@ -429,7 +430,20 @@ class opcode_div :
         opcode_data1 = replace_input(self.opcode_data1)
         opcode_data2 = replace_input(self.opcode_data2)
 
-        return 'z3.UDiv(%s,%s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
+        if  is_input(self.opcode_data1) or is_take_input(self.opcode_data1) or \
+            is_input(self.opcode_data2) or is_take_input(self.opcode_data2) :
+
+            return 'z3.UDiv(%s,%s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
+
+        calculate_express = 'div(%s,%s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
+        calculate_express = replace_express_to_logic_express(calculate_express)
+        
+        def div(number1,number2) :
+            return number1 / number2
+
+        exec('condition_temp_value = (%s)' % calculate_express)
+
+        return condition_temp_value
 
 class opcode_mod :
 
