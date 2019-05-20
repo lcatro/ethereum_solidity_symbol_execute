@@ -54,6 +54,12 @@ def execute_real_express(opcode_express_object) :
     condition_express = opcode_express_object.make_express()
     condition_express = opcode_express.replace_express_to_logic_express(condition_express)
 
+    def div(number1,number2) :
+            return number1 / number2
+
+    def isZero(number1) :
+        return number1 - 1
+
     exec('condition_temp_value = (%s)' % condition_express)
 
     return condition_temp_value
@@ -578,6 +584,14 @@ class executor :
             #self.state_object.store.print_store_make_express()
             
             return execute_stop()
+        elif opcode_name.startswith('LOG') :
+            memory_start = self.state_object.stack.pop_data()
+            memory_size = self.state_object.stack.pop_data()
+            log_count = int(opcode_name[ 3 : ])
+            for i in range(log_count) :
+                self.state_object.stack.pop_data()
+
+            next_pc = opcode_object.get_address() + 1
         else :
             print 'Unknow Opcode ..'
             print hex(opcode_object.get_address()),opcode_name,opcode_object.get_opcode_data()
@@ -634,7 +648,7 @@ class vuln_checker :
 
             exec('solver.add(%s)' % (express_data))
 
-        if not opcode_express.is_take_input(check_object) :
+        if not opcode_express.is_take_input(check_object) and not opcode_express.is_input(check_object):
             condition_value = execute_real_express(check_object)
         else :
             address_express = address_object.make_express()

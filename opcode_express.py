@@ -149,7 +149,7 @@ def has_iszero_inside(opcode_data) :
 def is_opcode_object(check_object) :
     if 'make_express' in dir(check_object) :
         return True
-
+    
     return False
 
 def can_make_express(opcode_data) :
@@ -161,11 +161,11 @@ def can_make_express(opcode_data) :
 def recurse_make_express(opcode_data) :
     if can_make_express(opcode_data) :
         return opcode_data.make_express()
-
+    
     return opcode_data
 
 def replace_express_to_logic_express(express_data) :
-    express_data = express_data.replace('z3.Not','not')
+    express_data = express_data.replace('z3.Not','isZero')
     express_data = express_data.replace('z3.UDiv','div')
 
     return express_data
@@ -360,14 +360,9 @@ class opcode_iszero :
 
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
-
-        if can_make_express(opcode_data1) :
-            if has_iszero_inside(opcode_data1) :
-                return opcode_logic_not(opcode_data1).make_express()
-            else :
-                return opcode_data1.make_express()
-
-        return '(%s == 0)' % (opcode_data1)
+        if can_make_express(opcode_data1):
+            return opcode_logic_not(opcode_data1).make_express()
+        return '(%s == 0)' % (recurse_make_express(opcode_data1))
 
     def set_disale(self) :
         self.is_disable_not = True
@@ -381,7 +376,6 @@ class opcode_eq :
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
         opcode_data2 = replace_input(self.opcode_data2)
-
         return '(%s == %s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
 
 class opcode_add :
@@ -405,7 +399,6 @@ class opcode_sub :
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
         opcode_data2 = replace_input(self.opcode_data2)
-
         return '(%s - %s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
 
 class opcode_mul :
@@ -417,7 +410,6 @@ class opcode_mul :
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
         opcode_data2 = replace_input(self.opcode_data2)
-
         return '(%s * %s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
 
 class opcode_div :
@@ -434,12 +426,14 @@ class opcode_div :
             is_input(self.opcode_data2) or is_take_input(self.opcode_data2) :
 
             return 'z3.UDiv(%s,%s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
-
         calculate_express = 'div(%s,%s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
         calculate_express = replace_express_to_logic_express(calculate_express)
         
         def div(number1,number2) :
             return number1 / number2
+
+        def isZero(number1) :
+            return number1 - 1
 
         exec('condition_temp_value = (%s)' % calculate_express)
 
@@ -476,7 +470,6 @@ class opcode_logic_not :
 
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
-
         return 'z3.Not(%s)' % (recurse_make_express(opcode_data1))
 
 class opcode_arithmetic_not :
