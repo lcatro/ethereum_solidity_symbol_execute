@@ -112,9 +112,8 @@ class executor :
 
         for express_index in self.state_object.express_list :
             express_data = express_index.make_express()
-
+            
             #print 'solver.add(%s)' % (express_data)
-
             exec('solver_true.add(%s)' % (express_data))
             exec('solver_false.add(%s)' % (express_data))
 
@@ -132,7 +131,7 @@ class executor :
                 true_condition_check_success = False
                 false_condition_check_success = True            
         else :
-            #print 'solver_true.add(%s)' % (condition_express)
+            # print 'solver.add(%s)' % (condition_express)
             exec('solver_true.add(%s)' % (condition_express))
             exec('solver_false.add(%s)' % (not_condition_express))
 
@@ -186,7 +185,7 @@ class executor :
 
             if not type(mstore_target_address) == str :
                 mstore_target_address = execute_value_express(mstore_target_address)
-
+            
             try :
                 mstore_target_address = int(mstore_target_address)
             except :
@@ -203,6 +202,9 @@ class executor :
             next_pc = opcode_object.get_address() + 1
         elif 'MLOAD' == opcode_name :
             mstore_target_address = self.state_object.stack.pop_data()
+
+            if not type(mstore_target_address) == str :
+                mstore_target_address = execute_value_express(mstore_target_address)
 
             try :
                 mstore_target_address = int(mstore_target_address)
@@ -334,7 +336,7 @@ class executor :
 
             self.execute_context.add_branch_count()
 
-            print check_condition.make_express()
+            #print check_condition.make_express()
 
             true_condition,false_condition = self.fork_branch(check_condition)
 
@@ -379,8 +381,16 @@ class executor :
             try :
                 jump_next_pc_address = int(jump_next_pc_address)
             except :
-                jump_next_pc_address = int(jump_next_pc_address,16)
-
+                try :
+                    jump_next_pc_address = int(jump_next_pc_address,16)
+                    print jump_next_pc_address
+                except :
+                    print self.state_object.stack.print_stack()
+                    print jump_next_pc_address.make_express()
+                    if 'make_express' in dir(jump_next_pc_address) :
+                        if not opcode_express.is_take_input(jump_next_pc_address) :
+                            jump_next_pc_address = execute_real_express(jump_next_pc_address)
+            
             if not 'JUMPDEST' == self.code_object.get_disassmbly_by_address(jump_next_pc_address).get_opcode() :
                 print 'JUMP Target Opcode Except ..'
 
@@ -678,7 +688,17 @@ class vuln_checker :
                 model_data = solver.model()
 
                 for key_index in model_data :
-                    print '\033[1;34m>>',key_index,hex(int(str(model_data[key_index]))),'\033[0m'
+                    if str(key_index) == 'calldata' :
+                        calldata_array = []
+                        
+                        for i in range(opcode_express.opcode_call_data.LENGTH) :
+                            calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                        
+                        value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                    else :
+                        value = hex(int(str(model_data[key_index])))
+                    
+                    print '\033[1;34m>>',key_index,value,'\033[0m'
 
         return check_result
     
@@ -721,7 +741,17 @@ class vuln_checker :
                 model_data = solver.model()
 
                 for key_index in model_data :
-                    print '\033[1;34m>>',key_index,hex(int(str(model_data[key_index]))),'\033[0m'
+                    if str(key_index) == 'calldata' :
+                        calldata_array = []
+                        
+                        for i in range(opcode_express.opcode_call_data.LENGTH) :
+                            calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                        
+                        value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                    else :
+                        value = hex(int(str(model_data[key_index])))
+                    
+                    print '\033[1;34m>>',key_index,value,'\033[0m'
 
         return check_result
 
@@ -759,7 +789,17 @@ class vuln_checker :
             model_data = solver.model()
 
             for key_index in model_data :
-                print '\033[1;34m>>',key_index,hex(int(str(model_data[key_index]))),'\033[0m'
+                if str(key_index) == 'calldata' :
+                    calldata_array = []
+                    
+                    for i in range(opcode_express.opcode_call_data.LENGTH) :
+                        calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                    
+                    value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                else :
+                    value = hex(int(str(model_data[key_index])))
+                
+                print '\033[1;34m>>',key_index,value,'\033[0m'
 
         return check_result
 
@@ -797,7 +837,17 @@ class vuln_checker :
             model_data = solver.model()
 
             for key_index in model_data :
-                print '\033[1;34m>>',key_index,hex(int(str(model_data[key_index]))),'\033[0m'
+                if str(key_index) == 'calldata' :
+                    calldata_array = []
+                    
+                    for i in range(opcode_express.opcode_call_data.LENGTH) :
+                        calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                    
+                    value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                else :
+                    value = hex(int(str(model_data[key_index])))
+                
+                print '\033[1;34m>>',key_index,value,'\033[0m'
 
         return check_result
 
@@ -847,7 +897,17 @@ class vuln_checker :
             model_data = solver.model()
 
             for key_index in model_data :
-                print '\033[1;34m>>',key_index,hex(int(str(model_data[key_index]))),'\033[0m'
+                if str(key_index) == 'calldata' :
+                    calldata_array = []
+                    
+                    for i in range(opcode_express.opcode_call_data.LENGTH) :
+                        calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                    
+                    value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                else :
+                    value = hex(int(str(model_data[key_index])))
+                
+                print '\033[1;34m>>',key_index,value,'\033[0m'
 
         return check_result
 

@@ -60,7 +60,8 @@ def replace_input(opcode_data) :
 def make_z3_init() :
     z3_init_list = [
         "callsize       = z3.BitVec('callsize',opcode_express.opcode_call_size.LENGTH * 8)" ,
-        "calldata       = z3.BitVec('calldata',opcode_express.opcode_call_data.LENGTH * 8)" ,
+        #"calldata       = z3.BitVec('calldata',opcode_express.opcode_call_data.LENGTH * 8)" ,
+        "calldata       = z3.Array('calldata',z3.BitVecSort(opcode_express.opcode_call_data.LENGTH),z3.BitVecSort(8))" ,
         "callvalue      = z3.BitVec('callvalue',opcode_express.opcode_call_value.LENGTH * 8)" ,
         "caller         = z3.BitVec('caller',opcode_express.opcode_call_caller.LENGTH * 8)" ,
         "codesize       = z3.BitVec('codesize',opcode_express.opcode_code_size.LENGTH * 8)" ,
@@ -193,20 +194,39 @@ class opcode_call_value :
 
 class opcode_call_data :
 
-    LENGTH = 128
+    LENGTH = 256
     ALIGNMENT = 32
     BYTE_LENGTH = 8
 
     def __init__(self,data_offset) :
         self.data_offset = data_offset
 
-    def make_express(self) :
-        alignment_byte = opcode_mul(opcode_call_data.ALIGNMENT,opcode_call_data.BYTE_LENGTH)
-        end_offset = opcode_add(opcode_mul(self.data_offset,opcode_call_data.BYTE_LENGTH),alignment_byte)
-        shr_count = opcode_sub(opcode_call_data.LENGTH * opcode_call_data.BYTE_LENGTH,end_offset)
-        fill_data = 0x100 ** opcode_call_data.ALIGNMENT - 1
+    def make_express(self) :  
+        # alignment_byte = opcode_mul(opcode_call_data.ALIGNMENT,opcode_call_data.BYTE_LENGTH)
+        # end_offset = opcode_add(opcode_mul(self.data_offset,opcode_call_data.BYTE_LENGTH),alignment_byte)
+        # shr_count = opcode_sub(opcode_call_data.LENGTH * opcode_call_data.BYTE_LENGTH,end_offset)
+        # fill_data = 0x100 ** opcode_call_data.ALIGNMENT - 1
+        # return opcode_and(opcode_shr(INPUT_CALL_DATA,shr_count),fill_data).make_express()
+        import z3
+        parts = []
+        calldata = z3.Array('calldata',z3.BitVecSort(opcode_call_data.LENGTH),z3.BitVecSort(8))
+        for i in range(32) :
+            index = recurse_make_express(opcode_add(self.data_offset, i))
+            
+            if index.find('call') == -1 :
+                exec('index = %s' % index)
+                if index.__class__ == int :
+                    index = z3.BitVecVal(index, opcode_call_data.LENGTH)               
+            else:
+                exec('index = z3.simplify(%s)' % index)
 
-        return opcode_and(opcode_shr(INPUT_CALL_DATA,shr_count),fill_data).make_express()
+            parts.append(calldata[index])
+
+        express = 'z3.Concat(%s)' % (parts)
+        express = express.replace('z3.Concat','Concat')
+        express = express.replace('Concat','z3.Concat')
+
+        return express
 
 class opcode_call_size :
 
@@ -410,6 +430,7 @@ class opcode_mul :
     def make_express(self) :
         opcode_data1 = replace_input(self.opcode_data1)
         opcode_data2 = replace_input(self.opcode_data2)
+        
         return '(%s * %s)' % (recurse_make_express(opcode_data1),recurse_make_express(opcode_data2))
 
 class opcode_div :
