@@ -162,6 +162,16 @@ class disassmbly_object :
             opcode = self.disassmbly_data[address_index]
 
             print hex(address_index),':',opcode.get_opcode(),opcode.get_opcode_data()
+    
+    def get_all_code(self) :
+        temp = ''
+        disassmbly_address_list = self.get_disassmbly_address_list()
+
+        for address_index in disassmbly_address_list :
+            opcode = self.disassmbly_data[address_index]
+
+            temp += hex(address_index) + ':' + str(opcode.get_opcode()) + str(opcode.get_opcode_data()) + '\n'
+        return temp
 
 class memory :
 
@@ -306,6 +316,7 @@ class stack :
     def print_stack(self) :
         print '>--- print_stack(%X) ---<' % id(self.memory_data)
         print self.memory_data
+        print self.point
         print '<--- print_stack(%X) --->' % id(self.memory_data)
 
 class store :

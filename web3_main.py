@@ -1,7 +1,7 @@
 
 
 import subprocess
-
+import web3
 import executor
 import context
 
@@ -79,7 +79,10 @@ def try_audit(file_path) :
     contract_init_code,contract_runtime_code = split_contract_code(contract_object)
 
     #contract_init_code.print_code()
-    #contract_runtime_code.print_code()
+    temp_file = './temp/code.txt'
+    code_temp_file = open(temp_file, 'w')
+    code_temp_file.write(contract_runtime_code.get_all_code())
+    code_temp_file.close()
 
     state_object = context.state_object()
 
@@ -103,6 +106,14 @@ def try_audit(file_path) :
 
 
 if __name__ == '__main__' :
+    req = web3.web3('https://mainnet.infura.io/')
+    contrat_address = '0xB8c77482e45F1F44dE1745F52C74426C631bDD52'
+    code = req.get_code(contrat_address)
+    temp_file = './temp/contract.txt'
+    contract_temp_file = open(temp_file, 'w')
+    contract_temp_file.write(code[2:])
+    contract_temp_file.close()
+    try_audit(temp_file)
     #try_audit('./example/test_code_no_div_zero.txt')
     #try_audit('./example/test_code_no_overflow.txt')
     #try_audit('./example/test_code_overflow.txt')
@@ -111,4 +122,4 @@ if __name__ == '__main__' :
     #try_audit('./example/test_code_call_from_calldata.txt')
     #try_audit('./example/test_code_call_from_init_no_control.txt')
     #try_audit('./example/test_code_bec.txt')
-    try_audit('./example/test_code2.txt')
+    #try_audit('./example/test_code2.txt')

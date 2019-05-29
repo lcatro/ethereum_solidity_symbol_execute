@@ -386,6 +386,7 @@ class executor :
                     print jump_next_pc_address
                 except :
                     print self.state_object.stack.print_stack()
+                    vuln_checker.print_input(self.state_object)
                     print jump_next_pc_address.make_express()
                     if 'make_express' in dir(jump_next_pc_address) :
                         if not opcode_express.is_take_input(jump_next_pc_address) :
@@ -405,7 +406,8 @@ class executor :
             call_insize  = self.state_object.stack.pop_data()
             call_outaddr = self.state_object.stack.pop_data()
             call_outsize = self.state_object.stack.pop_data()
-
+            # todo push call result 0 success 1 fail
+            self.state_object.stack.push_data(0)
             vuln_checker.arbitrarily_call(self.state_object,call_address)
 
             next_pc = opcode_object.get_address() + 1
@@ -630,6 +632,7 @@ class executor :
         while pc in opcode_address_list :
             current_opcode = self.code_object.get_disassmbly_by_address(pc)
             pc = self.execute_opcode(current_opcode)
+            # self.state_object.stack.print_stack()
 
             if not type(pc) == int :
                 if pc.__class__ == execute_revert :
@@ -851,6 +854,43 @@ class vuln_checker :
 
         return check_result
 
+    @staticmethod
+    def print_input(state_object) :
+        import z3
+
+        z3_init_list = opcode_express.make_z3_init()
+
+        for init_index in z3_init_list :
+            exec(init_index)
+
+        solver = z3.Solver()
+
+        for express_index in state_object.express_list :
+            express_data = express_index.make_express()
+
+            exec('solver.add(%s)' % (express_data))
+
+        if z3.sat == solver.check() :
+            print '\033[1;31m---- print input ----\033[0m'
+
+            model_data = solver.model()
+
+            for key_index in model_data :
+                if str(key_index) == 'calldata' :
+                    calldata_array = []
+                    
+                    for i in range(opcode_express.opcode_call_data.LENGTH) :
+                        calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                    
+                    value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                else :
+                    value = hex(int(str(model_data[key_index])))
+                
+                print '\033[1;34m>>',key_index,value,'\033[0m'
+        else :
+            print '---- print input fail ----'
+        return True
+    
     @staticmethod
     def div_zero_check(state_object,number_object) :
         check_result = False
