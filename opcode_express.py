@@ -1,6 +1,6 @@
 
 
-
+INPUT_MEMORY = 'memory'
 INPUT_CALL_DATA = 'calldata'
 INPUT_CALL_SIZE = 'callsize'
 INPUT_CALL_VALUE = 'callvalue'
@@ -75,6 +75,7 @@ def make_z3_init() :
         "coinbase       = z3.BitVec('coinbase',opcode_express.opcode_coinbase.LENGTH * 8)" ,
         "address        = z3.BitVec('address',opcode_express.opcode_address.LENGTH * 8)" ,
         "returndatasize = z3.BitVec('returndatasize',opcode_express.opcode_returndatasize.LENGTH * 8)" ,
+        "memory = z3.Array('memory',z3.BitVecSort(opcode_express.opcode_memory.LENGTH),z3.BitVecSort(8))" ,
     ]
 
     return z3_init_list
@@ -87,7 +88,7 @@ def is_input(opcode_data) :
                                    opcode_gasprice , opcode_blocknumber , \
                                    opcode_difficulty , opcode_origin , \
                                    opcode_coinbase , opcode_address , \
-                                   opcode_returndatasize ] :
+                                   opcode_returndatasize, opcode_memory ] :
         return True
 
     return False
@@ -174,7 +175,7 @@ def replace_express_to_logic_express(express_data) :
 
 class opcode_call_caller :
 
-    LENGTH = 64
+    LENGTH = 32
 
     def __init__(self) :
         pass
@@ -191,6 +192,39 @@ class opcode_call_value :
 
     def make_express(self) :
         return INPUT_CALL_VALUE
+
+class opcode_memory :
+    LENGTH = 256 #2MB
+    # LENGTH = 0x200000 #2MB
+    ALIGNMENT = 32
+    BYTE_LENGTH = 8
+
+    def __init__(self,data_offset) :
+        self.data_offset = data_offset
+
+    def make_express(self) :  
+        import z3
+        parts = []
+        memory = z3.Array('memory',z3.BitVecSort(opcode_memory.LENGTH),z3.BitVecSort(8))
+        for i in range(32) :
+            index = recurse_make_express(opcode_add(self.data_offset, i))
+            if not is_take_input(self.data_offset) :
+                exec('index = %s' % index)
+                # print index
+                # if index.__class__ == int :
+                #     index = z3.BitVecVal(index, opcode_memory.LENGTH)         
+            else:
+                exec('index = z3.simplify(%s)' % index)
+            if not index.__class__ == int :
+                print index.sort()
+            parts.append(memory[index])
+        print 'end'
+        express = z3.Concat(parts)
+        express = z3.simplify(express)
+        express = '%s' % express
+        express = express.replace('z3.Concat','Concat')
+        express = express.replace('Concat','z3.Concat')
+        return express
 
 class opcode_call_data :
 
@@ -213,7 +247,7 @@ class opcode_call_data :
         for i in range(32) :
             index = recurse_make_express(opcode_add(self.data_offset, i))
             
-            if index.find('call') == -1 :
+            if not is_take_input(self.data_offset) :
                 exec('index = %s' % index)
                 if index.__class__ == int :
                     index = z3.BitVecVal(index, opcode_call_data.LENGTH)               
@@ -310,7 +344,7 @@ class opcode_blocknumber :
 
 class opcode_origin :
 
-    LENGTH = 64
+    LENGTH = 32
 
     def __init__(self) :
         pass
@@ -320,7 +354,7 @@ class opcode_origin :
 
 class opcode_coinbase :
 
-    LENGTH = 64
+    LENGTH = 32
 
     def __init__(self) :
         pass
@@ -330,7 +364,7 @@ class opcode_coinbase :
 
 class opcode_address :
 
-    LENGTH = 64
+    LENGTH = 32
 
     def __init__(self) :
         pass
@@ -454,8 +488,12 @@ class opcode_div :
             return number1 / number2
 
         def isZero(number1) :
-            return number1 - 1
+            if number1 == 0 :
+                return 1
+            return 0
 
+        print 'opcode_data1', recurse_make_express(opcode_data1)
+        print 'opcode_data2', recurse_make_express(opcode_data2)
         exec('condition_temp_value = (%s)' % calculate_express)
 
         return condition_temp_value

@@ -20,3 +20,15 @@ class web3 :
         if result and result['result']:
             return result['result']
         return '0x'
+    
+    def get_storage_at(self,address,position,tag='latest') :
+        ps = position
+        
+        if type(position) == int:
+            ps = hex(position)
+
+        result = self.send('eth_getStorageAt',[address,ps,tag])
+        if result and result['result']:
+            return result['result']
+        print 'get store error %s' % result
+        return '0x0'

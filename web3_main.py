@@ -74,7 +74,7 @@ def split_contract_code(target_disassmbly_object) :  #  Return (Contract_init,Co
 
     return (False,target_disassmbly_object)
 
-def try_audit(file_path) :
+def try_audit(file_path,web3_req = False,contrat_address = False) :
     contract_object = disassmbly_contract(file_path)
     contract_init_code,contract_runtime_code = split_contract_code(contract_object)
 
@@ -84,7 +84,7 @@ def try_audit(file_path) :
     code_temp_file.write(contract_runtime_code.get_all_code())
     code_temp_file.close()
 
-    state_object = context.state_object()
+    state_object = context.state_object(web3_req,contrat_address)
 
     '''
     if contract_init_code :
@@ -93,7 +93,7 @@ def try_audit(file_path) :
         contract_init_code_executor.run()
     '''
     
-    contract_runtime_code_executor = executor.executor(contract_runtime_code,state_object,context.execute_context())
+    contract_runtime_code_executor = executor.executor(contract_runtime_code,state_object,context.execute_context(),contrat_address)
 
     contract_runtime_code_executor.run()
 
@@ -106,14 +106,16 @@ def try_audit(file_path) :
 
 
 if __name__ == '__main__' :
-    req = web3.web3('https://mainnet.infura.io/')
-    contrat_address = '0xB8c77482e45F1F44dE1745F52C74426C631bDD52'
+    #req = web3.web3('https://mainnet.infura.io/')
+    req = web3.web3('https://api.myetherwallet.com/eth')
+    contrat_address = '0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2'
     code = req.get_code(contrat_address)
     temp_file = './temp/contract.txt'
     contract_temp_file = open(temp_file, 'w')
     contract_temp_file.write(code[2:])
     contract_temp_file.close()
-    try_audit(temp_file)
+    #try_audit(temp_file)
+    try_audit(temp_file,req,contrat_address)
     #try_audit('./example/test_code_no_div_zero.txt')
     #try_audit('./example/test_code_no_overflow.txt')
     #try_audit('./example/test_code_overflow.txt')

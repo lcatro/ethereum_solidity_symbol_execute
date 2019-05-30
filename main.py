@@ -105,10 +105,10 @@ def try_audit(file_path) :
 if __name__ == '__main__' :
     #try_audit('./example/test_code_no_div_zero.txt')
     #try_audit('./example/test_code_no_overflow.txt')
-    #try_audit('./example/test_code_overflow.txt')
+    try_audit('./example/test_code_overflow.txt')
     #try_audit('./example/test_code_overflow2.txt')
     #try_audit('./example/test_code_selfdestruct.txt')
     #try_audit('./example/test_code_call_from_calldata.txt')
     #try_audit('./example/test_code_call_from_init_no_control.txt')
     #try_audit('./example/test_code_bec.txt')
-    try_audit('./example/test_code2.txt')
+    #try_audit('./example/test_code2.txt')

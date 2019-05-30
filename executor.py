@@ -58,11 +58,28 @@ def execute_real_express(opcode_express_object) :
             return number1 / number2
 
     def isZero(number1) :
-        return number1 - 1
+        if number1 == 0 :
+            return 1
+        return 0
 
     exec('condition_temp_value = (%s)' % condition_express)
 
     return condition_temp_value
+
+def format_to_hex(express) :
+    if opcode_express.is_take_input(express) or opcode_express.is_input(express) :
+        return False
+    
+    if not type(express) == str :
+        express = execute_value_express(express)
+
+    try :
+        express = int(express)
+    except :
+        express = int(express,16)
+
+    return hex(express)
+
 
 def build_express_list(express_list) :
     import z3
@@ -84,15 +101,20 @@ def build_express_list(express_list) :
 
 class executor :
 
-    def __init__(self,code_object,state_object,execute_context) :
+    def __init__(self,code_object,state_object,execute_context,contract_address=False) :
         self.code_object = code_object
         self.state_object = state_object
         self.execute_context = execute_context
+        if type(contract_address) == str :
+            self.contract_address = contract_address.lower()
+        else :
+            self.contract_address = opcode_express.opcode_address()
 
     def copy_executor(self) :
         new_executor = executor(copy.deepcopy(self.code_object),
                                 copy.deepcopy(self.state_object),
-                                self.execute_context)
+                                self.execute_context,
+                                self.contract_address)
 
         return new_executor
 
@@ -113,7 +135,7 @@ class executor :
         for express_index in self.state_object.express_list :
             express_data = express_index.make_express()
             
-            #print 'solver.add(%s)' % (express_data)
+            # print 'solver.add(%s)' % (express_data)
             exec('solver_true.add(%s)' % (express_data))
             exec('solver_false.add(%s)' % (express_data))
 
@@ -182,14 +204,14 @@ class executor :
         elif 'MSTORE' == opcode_name :
             mstore_target_address = self.state_object.stack.pop_data()
             mstore_target_data = self.state_object.stack.pop_data()
-
-            if not type(mstore_target_address) == str :
-                mstore_target_address = execute_value_express(mstore_target_address)
+            # if not type(mstore_target_address) == str :
+            #     print 'MSTORE',mstore_target_address.make_express()
+            #     mstore_target_address = execute_value_express(mstore_target_address)
             
-            try :
-                mstore_target_address = int(mstore_target_address)
-            except :
-                mstore_target_address = int(mstore_target_address,16)
+            # try :
+            #     mstore_target_address = int(mstore_target_address)
+            # except :
+            #     mstore_target_address = int(mstore_target_address,16)
 
             if type(mstore_target_data) == str :
                 try :
@@ -197,27 +219,41 @@ class executor :
                 except :
                     mstore_target_data = int(mstore_target_data,16)
 
-            self.state_object.memory.set_32byte(mstore_target_address,mstore_target_data)
+            memory_express = opcode_express.opcode_memory(mstore_target_address)
+            #print memory_express.make_express()
+            write_express = opcode_express.opcode_eq(memory_express,mstore_target_data)
+            #print write_express.make_express()
+
+            self.state_object.add_express(write_express)
+
+            # self.state_object.memory.set_32byte(mstore_target_address,mstore_target_data)
 
             next_pc = opcode_object.get_address() + 1
         elif 'MLOAD' == opcode_name :
             mstore_target_address = self.state_object.stack.pop_data()
 
-            if not type(mstore_target_address) == str :
-                mstore_target_address = execute_value_express(mstore_target_address)
+            # if not type(mstore_target_address) == str :
+            #     mstore_target_address = execute_value_express(mstore_target_address)
 
-            try :
-                mstore_target_address = int(mstore_target_address)
-            except :
-                mstore_target_address = int(mstore_target_address,16)
+            # try :
+            #     mstore_target_address = int(mstore_target_address)
+            # except :
+            #     mstore_target_address = int(mstore_target_address,16)
+            
+            # print 'mstore_target_address',mstore_target_address
+            # #print self.state_object.memory.get_32byte(mstore_target_address).make_express()
 
-            self.state_object.stack.push_data(
-                self.state_object.memory.get_32byte(mstore_target_address))
+            # self.state_object.stack.push_data(
+            #     self.state_object.memory.get_32byte(mstore_target_address))
+
+            self.state_object.stack.push_data(opcode_express.opcode_memory(mstore_target_address))
 
             next_pc = opcode_object.get_address() + 1
         elif 'SSTORE' == opcode_name :
             sstore_target_address = self.state_object.stack.pop_data()
             sstore_target_data = self.state_object.stack.pop_data()
+
+            sstore_target_address = format_to_hex(sstore_target_address)
 
             self.state_object.store.set(sstore_target_address,sstore_target_data)
             
@@ -228,6 +264,8 @@ class executor :
             next_pc = opcode_object.get_address() + 1
         elif 'SLOAD' == opcode_name :
             sstore_target_address = self.state_object.stack.pop_data()
+
+            sstore_target_address = format_to_hex(sstore_target_address)
 
             self.state_object.stack.push_data(self.state_object.store.get(sstore_target_address))
 
@@ -289,7 +327,10 @@ class executor :
 
             next_pc = opcode_object.get_address() + 1
         elif 'ADDRESS' == opcode_name :
-            self.state_object.stack.push_data(opcode_express.opcode_address())
+            if type(self.contract_address) == str :
+                self.state_object.stack.push_data(self.contract_address)
+            else :
+                self.state_object.stack.push_data(opcode_express.opcode_address())
 
             next_pc = opcode_object.get_address() + 1
         elif 'LT' == opcode_name :
@@ -323,7 +364,6 @@ class executor :
             jump_next_pc_address = self.state_object.stack.pop_data()
             check_condition = self.state_object.stack.pop_data()
             nojump_next_pc_address = opcode_object.get_address() + 1
-
             try :
                 jump_next_pc_address = int(jump_next_pc_address)
             except :
@@ -336,7 +376,7 @@ class executor :
 
             self.execute_context.add_branch_count()
 
-            #print check_condition.make_express()
+            #print 'check_condition',check_condition.make_express()
 
             true_condition,false_condition = self.fork_branch(check_condition)
 
@@ -383,11 +423,7 @@ class executor :
             except :
                 try :
                     jump_next_pc_address = int(jump_next_pc_address,16)
-                    print jump_next_pc_address
                 except :
-                    print self.state_object.stack.print_stack()
-                    vuln_checker.print_input(self.state_object)
-                    print jump_next_pc_address.make_express()
                     if 'make_express' in dir(jump_next_pc_address) :
                         if not opcode_express.is_take_input(jump_next_pc_address) :
                             jump_next_pc_address = execute_real_express(jump_next_pc_address)
@@ -441,6 +477,17 @@ class executor :
             vuln_checker.div_zero_check(self.state_object,number2)
 
             self.state_object.stack.push_data(opcode_express.opcode_div(number1,number2))
+
+            # if 'make_express' in dir(number1):
+            #     print 'div n1',number1.make_express()
+            # else :
+            #     print 'div n1',number1
+            
+            # if 'make_express' in dir(number2):
+            #     print 'div n2',number2.make_express()
+            # else :
+            #     print 'div n2',number2    
+            # print 'div rs', opcode_express.opcode_div(number1,number2).make_express()
 
             next_pc = opcode_object.get_address() + 1
         elif 'EXP' == opcode_name :
@@ -553,17 +600,22 @@ class executor :
             target_memory = self.state_object.stack.pop_data()
             call_offset = self.state_object.stack.pop_data()
             call_length = self.state_object.stack.pop_data()
+
+            # if 'make_express' in dir(target_memory) :
+            #     if not opcode_express.is_take_input(target_memory) :
+            #         target_memory = execute_value_express(target_memory)
             
-            if 'make_express' in dir(target_memory) :
-                if not opcode_express.is_take_input(target_memory) :
-                    target_memory = execute_value_express(target_memory)
+            # try :
+            #     target_memory = int(target_memory)
+            # except :
+            #     target_memory = int(target_memory,16)
 
-            try :
-                target_memory = int(target_memory)
-            except :
-                target_memory = int(target_memory,16)
+            # self.state_object.memory.set_32byte(target_memory,opcode_express.opcode_call_data(call_offset))
 
-            self.state_object.memory.set_32byte(target_memory,opcode_express.opcode_call_data(call_offset))
+            memory_express = opcode_express.opcode_memory(target_memory)
+            write_express = opcode_express.opcode_eq(memory_express,opcode_express.opcode_call_data(call_offset))
+
+            self.state_object.add_express(write_express)
 
             next_pc = opcode_object.get_address() + 1
         elif 'KECCAK256' == opcode_name or 'SHA3' == opcode_name :
@@ -631,7 +683,14 @@ class executor :
 
         while pc in opcode_address_list :
             current_opcode = self.code_object.get_disassmbly_by_address(pc)
-            pc = self.execute_opcode(current_opcode)
+            try :
+                pc = self.execute_opcode(current_opcode)
+            except KeyboardInterrupt:
+                raise
+            except :
+                #vuln_checker.print_input(self.state_object)
+                raise
+            
             # self.state_object.stack.print_stack()
 
             if not type(pc) == int :
@@ -867,7 +926,7 @@ class vuln_checker :
 
         for express_index in state_object.express_list :
             express_data = express_index.make_express()
-
+            # print express_data
             exec('solver.add(%s)' % (express_data))
 
         if z3.sat == solver.check() :

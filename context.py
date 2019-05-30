@@ -1,6 +1,6 @@
 
 import copy
-
+import executor
 import opcode_express
 
 
@@ -314,6 +314,8 @@ class stack :
         self.memory_data[self.point - swap_number] = old_data
 
     def print_stack(self) :
+        if 12 in self.memory_data and 'make_express' in dir(self.memory_data[12]) :
+            print self.memory_data[12].make_express()
         print '>--- print_stack(%X) ---<' % id(self.memory_data)
         print self.memory_data
         print self.point
@@ -323,22 +325,32 @@ class store :
 
     MEMORY_ALIGNMENT = 64
 
-    def __init__(self):
+    def __init__(self,web3_req,contract_address):
         self.store_data = {}
         self.store_init = {}
+        self.req = web3_req
+        self.contract_address = contract_address
 
     def set_init_data(self,init_data) :
         self.store_data = init_data
         self.store_init = init_data
 
-    def set(self,address,data) :
-        self.store_data[address] = data
+    def set(self,address_hex,data) :
+        self.store_data[address_hex] = data
 
-    def get(self,address) :
-        if address in self.store_data.keys() :
-            return self.store_data[address]
+    def get(self,address_hex) :
+        if not address_hex :
+            return '0x0'
 
-        return 0
+        if address_hex in self.store_data.keys() :
+            return self.store_data[address_hex]
+        
+        if self.req :
+            self.store_data[address_hex] = self.req.get_storage_at(self.contract_address,address_hex)
+            print address_hex,self.store_data[address_hex]
+            return self.store_data[address_hex]
+
+        return '0x0'
 
     def get_init_data(self) :
         return self.store_init
@@ -385,10 +397,10 @@ class state_object :
         ACTIVE_PATH = 2  #  is a valid path
         DEAD_PATH = 3    #  is a unvalid path
 
-    def __init__(self) :
+    def __init__(self,web3_req=False,contract_address=False) :
         self.memory = memory()
         self.stack = stack()
-        self.store = store()
+        self.store = store(web3_req,contract_address)
         self.code_record = []
         self.express_list = []
         self.execute_state = state_object.execute_state_value.UNRUNNING
