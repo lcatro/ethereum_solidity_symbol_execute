@@ -314,8 +314,6 @@ class stack :
         self.memory_data[self.point - swap_number] = old_data
 
     def print_stack(self) :
-        if 12 in self.memory_data and 'make_express' in dir(self.memory_data[12]) :
-            print self.memory_data[12].make_express()
         print '>--- print_stack(%X) ---<' % id(self.memory_data)
         print self.memory_data
         print self.point
