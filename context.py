@@ -2,6 +2,7 @@
 import copy
 import executor
 import opcode_express
+import z3
 
 
 class opcode_object :
@@ -334,16 +335,21 @@ class store :
         self.store_init = init_data
 
     def set(self,address_hex,data) :
+        if opcode_express.is_z3_express(address_hex) :
+            address_hex = str(address_hex)
         self.store_data[address_hex] = data
 
     def get(self,address_hex) :
+        if opcode_express.is_z3_express(address_hex) :
+            address_hex = str(address_hex)
+        
         if not address_hex :
             return '0x0'
 
         if address_hex in self.store_data.keys() :
             return self.store_data[address_hex]
         
-        if self.req :
+        if self.req and address_hex[:2] == '0x' :
             self.store_data[address_hex] = self.req.get_storage_at(self.contract_address,address_hex)
             print address_hex,self.store_data[address_hex]
             return self.store_data[address_hex]

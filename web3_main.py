@@ -108,7 +108,7 @@ def try_audit(file_path,web3_req = False,contrat_address = False) :
 if __name__ == '__main__' :
     #req = web3.web3('https://mainnet.infura.io/')
     req = web3.web3('https://api.myetherwallet.com/eth')
-    contrat_address = '0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2'
+    contrat_address = '0xd850942ef8811f2a866692a623011bde52a462c1'
     code = req.get_code(contrat_address)
     temp_file = './temp/contract.txt'
     contract_temp_file = open(temp_file, 'w')

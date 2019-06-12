@@ -211,6 +211,12 @@ class opcode_call_value :
     def make_express(self) :
         return INPUT_CALL_VALUE
         
+def opcode_init_memory(memory, length) :
+    
+    for i in range(length) :
+        memory = z3.Store(memory, i, z3.BitVecVal(0, 8))
+
+    return z3.simplify(memory)
 
 def opcode_write_memory(memory,offset,data,length = 32) :
     parts = []
@@ -218,9 +224,15 @@ def opcode_write_memory(memory,offset,data,length = 32) :
         length = format_to_int(length)
         for i in range(length) :
             index = opcode_add(offset, i)
-            high = (length - i) * 8 - 1
-            low = high - 7
-            memory = z3.Store(memory, index, z3.Extract(high, low, data))
+
+            if type(data) == list :
+                write_data = z3.BitVecVal(data[i], 8)
+            else :
+                high = (length - i) * 8 - 1
+                low = high - 7
+                write_data = z3.Extract(high, low, data)
+
+            memory = z3.Store(memory, index, write_data)
 
         return z3.simplify(memory)
     
@@ -234,11 +246,15 @@ def opcode_get_memory(memory,offset,length = 32) :
         for i in range(format_to_int(length)) :
             index = opcode_add(offset, i)
             parts.append(memory[index])
+
         return z3.simplify(z3.Concat(parts))
-    
-    print length
-    exit()
-    return z3.Concat(parts)
+
+    # delete tail zero
+    for i in range(opcode_memory.LENGTH) :
+            check_get_express = z3.And(i >= offset, i < offset + length)
+            parts.append(z3.If(check_get_express, memory[i], z3.BitVecVal(0, 8)))
+
+    return z3.simplify(z3.Concat(parts)) 
 
 class opcode_memory :
     LENGTH = 256 #2MB
@@ -252,10 +268,24 @@ class opcode_memory :
     def make_express(self) :  
         import z3
         
+def opcode_init_call_data(calldata, init_data) :
+    if init_data[:2] == '0x':
+        init_data = init_data[2:]
+    
+    length = len(init_data) / 2
+    low = 0
+    high = low + 2
+
+    for i in range(length) :
+        data = int(init_data[low:high], 16)
+        calldata = z3.Store(calldata, i, z3.BitVecVal(data, 8))
+        low += 2
+        high = low + 2
+
+    return z3.simplify(calldata)
 
 def opcode_call_data(calldata,data_offset,data_length = 32) :
     parts = []
-    print data_length
     if not is_z3_express(data_length) :
         for i in range(format_to_int(data_length)) :
             index = opcode_add(data_offset, i)
@@ -269,8 +299,9 @@ def opcode_call_data_copy(calldata,memory,target_memory,call_offset,call_length 
     if not is_z3_express(call_length) :
         for i in range(format_to_int(call_length)) :
             index = opcode_add(call_offset, i)
-            memory = z3.Store(memory, index, calldata[index])
-
+            pos = opcode_add(target_memory, i)
+            memory = z3.Store(memory, pos, calldata[index])
+            
         return z3.simplify(memory)
     
     for i in range(opcode_memory.LENGTH) :
@@ -432,6 +463,28 @@ class opcode_address :
     def make_express(self) :
         return INPUT_ADDRESS
 
+def opcode_return_data_copy(returndata,memory,target_memory,return_offset,return_length = 32) :
+    if not is_z3_express(return_length) :
+        for i in range(format_to_int(return_length)) :
+            index = opcode_add(return_length, i)
+            pos = opcode_add(target_memory, i)
+            memory = z3.Store(memory, pos, returndata[index])
+            
+        return z3.simplify(memory)
+    
+    for i in range(opcode_memory.LENGTH) :
+            check_write_express = z3.And(i >= target_memory, i < target_memory + return_length)
+
+            pos = z3.If(check_write_express, return_offset + i - target_memory, -1)
+            
+            check_get_calldata = z3.If(pos > opcode_call_data_config.LENGTH, 0, returndata[pos])
+            
+            get_data = z3.If(check_write_express, check_get_calldata, memory[i])
+            
+            memory = z3.Store(memory, i, get_data)
+    
+    return z3.simplify(memory)
+
 class opcode_returndatasize :
 
     LENGTH = 32
@@ -444,7 +497,7 @@ class opcode_returndatasize :
 
 def opcode_lt(opcode_data1,opcode_data2) :
 
-    return z3.If(opcode_data1 < opcode_data2, z3.BitVecVal(1, 256), z3.BitVecVal(0, 256))
+    return z3.If(z3.ULT(opcode_data1, opcode_data2), z3.BitVecVal(1, 256), z3.BitVecVal(0, 256))
 
 class opcode_lt_ :
 
@@ -460,10 +513,8 @@ class opcode_lt_ :
 
 def opcode_gt(opcode_data1,opcode_data2) :
     
-    if not is_z3_express(opcode_data1) and not is_z3_express(opcode_data2) :
-        return int(opcode_data1 > opcode_data2)
-    
-    return z3.If(opcode_data1 > opcode_data2, z3.BitVecVal(1, 256), z3.BitVecVal(0, 256))
+    express = z3.If(z3.UGT(opcode_data1, opcode_data2), z3.BitVecVal(1, 256), z3.BitVecVal(0, 256))
+    return express
 
 class opcode_gt_ :
 
@@ -595,7 +646,7 @@ class opcode_div_ :
 
 def opcode_mod(opcode_data1,opcode_data2) :
 
-    return z3.simplify(opcode_data1 % opcode_data2)
+    return z3.simplify(z3.URem(opcode_data1, opcode_data2))
 
 class opcode_mod_ :
 

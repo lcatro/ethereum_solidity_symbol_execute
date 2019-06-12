@@ -78,8 +78,13 @@ def format_to_hex(express) :
             express = int(express,16)
     else :
         express = express.as_long()
+    
+    express = hex(express)
 
-    return hex(express)
+    if express[-1:] == 'L' :
+        express = express[:-1]
+    
+    return express
 
 def format_to_bitVal(data, len = 256) :
     if type(data) == str or type(data) == bool or type(data) == unicode :
@@ -87,6 +92,9 @@ def format_to_bitVal(data, len = 256) :
             data = int(data)
         except :
             data = int(data,16)
+    
+    if data.__class__ == z3.z3.BitVecNumRef :
+        return data
 
     data = z3.BitVecVal(data, 256)
     return data
@@ -116,11 +124,15 @@ def build_express_list(express_list) :
 
 class executor :
 
-    def __init__(self,code_object,state_object,execute_context,contract_address = False,input_data = False,jump_count = False) :
+    def __init__(self,code_object,state_object,execute_context,contract_address = False,input_data = False,jump_count = False,init_data = False,vuln_data = False) :
         self.code_object = code_object
         self.state_object = state_object
         self.execute_context = execute_context
         self.input_data = {}
+
+        if vuln_data :
+            self.vuln_data = vuln_data
+        self.vuln_data = ''
         
         if type(jump_count) == dict :
             self.jump_count = jump_count
@@ -146,7 +158,10 @@ class executor :
             self.input_data['address']        = z3.BitVec('address',opcode_express.opcode_address.LENGTH * 8)
             self.input_data['returndatasize'] = z3.BitVec('returndatasize',opcode_express.opcode_returndatasize.LENGTH * 8)
             self.input_data['memory']         = z3.Array('memory',z3.BitVecSort(opcode_express.opcode_memory.LENGTH),z3.BitVecSort(8))
-
+            self.input_data['memory']         = opcode_express.opcode_init_memory(self.input_data['memory'], opcode_express.opcode_memory.LENGTH)
+            if init_data and init_data.has_key('calldata') :
+                self.input_data['calldata'] = opcode_express.opcode_init_call_data(self.input_data['calldata'], init_data['calldata'])
+        
         if type(contract_address) == str :
             self.contract_address = contract_address.lower()
         else :
@@ -158,7 +173,9 @@ class executor :
                                 self.execute_context,
                                 self.contract_address,
                                 copy.deepcopy(self.input_data),
-                                copy.deepcopy(self.jump_count))
+                                copy.deepcopy(self.jump_count),
+                                False,
+                                self.vuln_data)
 
         return new_executor
 
@@ -207,7 +224,8 @@ class executor :
         if not opcode_express.is_z3_express(condition) :  #  this express don't using z3 to resolver it .
                                                           #  see example : z3.Not((z3.Not((0x03 < (0x01 + 0x02)))))
             # condition_value = execute_real_express(condition)
-
+            condition = z3.simplify(format_to_bool(condition))
+            print condition
             if condition :
                 true_condition_check_success = True
                 false_condition_check_success = False
@@ -318,8 +336,7 @@ class executor :
         elif 'SSTORE' == opcode_name :
             sstore_target_address = self.state_object.stack.pop_data()
             sstore_target_data = self.state_object.stack.pop_data()
-            print sstore_target_address
-            print sstore_target_data
+
             # print sstore_target_address.__class__
 
             if not opcode_express.is_z3_express(sstore_target_address) :
@@ -328,14 +345,18 @@ class executor :
             self.state_object.store.set(sstore_target_address,sstore_target_data)
             
             if opcode_express.is_z3_express(sstore_target_address) :
-                vuln_checker.add_balance_check(self.state_object,sstore_target_address,sstore_target_data,self.input_data)
+                vulnable,vuln_data = vuln_checker.change_storage_check(self.state_object,sstore_target_address,sstore_target_data,self.input_data)
+                if vulnable :
+                    self.vuln_data += vuln_data + '\n'
             #     vuln_checker.transfer_overflow_check(self.state_object,sstore_target_address,sstore_target_data)
 
             next_pc = opcode_object.get_address() + 1
         elif 'SLOAD' == opcode_name :
             sstore_target_address = self.state_object.stack.pop_data()
 
-            sstore_target_address = format_to_hex(sstore_target_address)
+            
+            if not opcode_express.is_z3_express(sstore_target_address) :
+                sstore_target_address = format_to_hex(sstore_target_address)
             
             # not support get dym address data
             data = self.state_object.store.get(sstore_target_address)
@@ -450,7 +471,8 @@ class executor :
 
             self.execute_context.add_branch_count()
 
-            #print 'check_condition',check_condition.make_express()
+            #print 'check_condition',check_condition
+            #print 'simp',z3.simplify(check_condition)
 
             true_condition,false_condition = self.fork_branch(check_condition)
 
@@ -516,7 +538,9 @@ class executor :
             call_outsize = self.state_object.stack.pop_data()
             # todo push call result 0 success 1 fail
             self.state_object.stack.push_data(0)
-            vuln_checker.arbitrarily_call(self.state_object,call_address,self.input_data)
+            vulnable,vuln_data = vuln_checker.arbitrarily_call(self.state_object,call_address,self.input_data)
+            if vulnable :
+                self.vuln_data += vuln_data + '\n'
 
             next_pc = opcode_object.get_address() + 1
         elif 'JUMPDEST' == opcode_name :
@@ -625,11 +649,13 @@ class executor :
             copy_to_addr   = self.state_object.stack.pop_data()
             copy_from_addr = self.state_object.stack.pop_data()
             copy_length    = self.state_object.stack.pop_data()
-
-            data = opcode_express.opcode_get_memory(self.input_data['memory'], copy_from_addr)
-
-            opcode_express.opcode_write_memory(self.input_data['memory'], copy_to_addr, data, copy_length)
-
+            vuln_checker.print_input(self.state_object,self.input_data)
+            # self.input_data['memory'] = opcode_express.opcode_return_data_copy(self.input_data['calldata'],
+            #                                      self.input_data['memory'],
+            #                                      target_memory,
+            #                                      call_offset,
+            #                                      call_length)
+            
             # try :
             #     copy_to_addr = int(copy_to_addr)
             # except :
@@ -651,7 +677,8 @@ class executor :
             target_memory = self.state_object.stack.pop_data()
             code_offset = self.state_object.stack.pop_data()
             code_length = self.state_object.stack.pop_data()
-
+            code_offset = opcode_express.format_to_int(code_offset)
+            code_length = opcode_express.format_to_int(code_length)
             # try :
             #     target_memory = int(target_memory)
             # except :
@@ -666,10 +693,10 @@ class executor :
             #     code_length = int(code_length)
             # except :
             #     code_length = int(code_length,16)
+            
 
             code_data = self.code_object.get_bytecode_data(code_offset,code_length)
-
-            opcode_express.opcode_write_memory(self.input_data['memory'], target_memory, code_data, code_length)
+            self.input_data['memory'] = opcode_express.opcode_write_memory(self.input_data['memory'], target_memory, code_data, code_length)
 
 
             # self.state_object.memory.set_real_data(target_memory,code_data,code_length)
@@ -679,7 +706,6 @@ class executor :
             target_memory = self.state_object.stack.pop_data()
             call_offset = self.state_object.stack.pop_data()
             call_length = self.state_object.stack.pop_data()
-
             # if 'make_express' in dir(target_memory) :
             #     if not opcode_express.is_take_input(target_memory) :
             #         target_memory = execute_value_express(target_memory)
@@ -722,7 +748,9 @@ class executor :
         elif 'SELFDESTRUCT' == opcode_name :
             target_address = self.state_object.stack.pop_data()
 
-            vuln_checker.arbitrarily_selfdestruct(self.state_object,target_address,self.input_data)
+            vulnable,vuln_data = vuln_checker.arbitrarily_selfdestruct(self.state_object,target_address,self.input_data)
+            if vulnable :
+                self.vuln_data += vuln_data + '\n'
 
             return execute_selfdestruct()
         elif 'REVERT' == opcode_name :
@@ -735,7 +763,9 @@ class executor :
             #self.state_object.show_code_stream()
             #self.state_object.show_express()
             #self.state_object.store.print_store_make_express()
-            
+            if len(self.vuln_data) > 0 :
+                print self.vuln_data
+        
             return execute_return()
         elif 'STOP' == opcode_name :
             #self.state_object.show_code_stream()
@@ -749,9 +779,21 @@ class executor :
 
             log_count = int(opcode_name[ 3 : ])
 
-            for i in range(log_count) :
-                self.state_object.stack.pop_data()
+            value = 0
+            topic = 0
 
+            if log_count == 3 :
+                value = opcode_express.opcode_get_memory(self.input_data['memory'],memory_start,memory_size)
+            
+            for i in range(log_count) :
+                temp = self.state_object.stack.pop_data()
+                if log_count == 3 and i == 0 :
+                    topic = temp
+                if log_count == 4 and i == 3 :
+                    value = temp
+            
+            vuln_checker.add_balance_check(self.state_object,topic,value,self.input_data)
+            
             next_pc = opcode_object.get_address() + 1
         else :
             print 'Unknow Opcode ..'
@@ -796,11 +838,11 @@ class executor :
 class vuln_checker :
 
     @staticmethod
-    def add_balance_check(state_object,address_object,data_object,input_data) :
+    def change_storage_check(state_object,address_object,data_object,input_data) :
         check_result = False
 
         if  not opcode_express.is_z3_express(address_object) :
-            return False
+            return False,''
 
         # import z3
 
@@ -818,16 +860,17 @@ class vuln_checker :
 
         address_express = address_object
         data_express = data_object
-        # solver.add(address_express == opcode_express.DEFAULT_INPUT_ADDRESS)
+        solver.add(input_data['caller'] == opcode_express.DEFAULT_INPUT_ADDRESS)
         solver.add(data_express > 0)
         # exec('solver.add((%s) == %s)' % (address_express,opcode_express.DEFAULT_INPUT_ADDRESS))
         # exec('solver.add(%s > 0)' % (data_express))
-
+        payload_result = ''
         if z3.sat == solver.check() :
-            print '\033[1;31m---- add balance Vuln Check ! ----\033[0m'
-            print 'Auto Building Test Payload :'
+            payload_result += '\033[1;31m---- change storage Vuln Check ! ----\033[0m' + '\n'
+            payload_result += 'Auto Building Test Payload :' + '\n'
 
             check_result = True
+            
             model_data = solver.model()
 
             for key_index in model_data :
@@ -841,9 +884,60 @@ class vuln_checker :
                 else :
                     value = hex(int(str(model_data[key_index])))
                 
-                print '\033[1;34m>>',key_index,value,'\033[0m'
+                payload_result += '033[1;34m>>' + str(key_index) + str(value) + '\033[0m' + '\n'
+                print payload_result
+        return check_result,payload_result
 
-        return check_result
+    @staticmethod
+    def add_balance_check(state_object,topic_object,data_object,input_data) :
+        check_result = False
+
+        # import z3
+
+        # z3_init_list = opcode_express.make_z3_init()
+
+        # for init_index in z3_init_list :
+        #     exec(init_index)
+
+        solver = z3.Solver()
+
+        for express_data in state_object.express_list :
+            # express_data = express_index.make_express()
+            solver.add(format_to_bool(express_data))
+            # exec('solver.add(%s)' % (express_data))
+        
+        topic_express = topic_object
+        data_express = data_object
+
+        solver.add(input_data['caller'] == opcode_express.DEFAULT_INPUT_ADDRESS)
+        solver.add(data_express > 0)
+        # Transfer Event
+        solver.add(topic_express == 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef)
+        # exec('solver.add((%s) == %s)' % (address_express,opcode_express.DEFAULT_INPUT_ADDRESS))
+        # exec('solver.add(%s > 0)' % (data_express))
+        payload_result = ''
+        if z3.sat == solver.check() :
+            payload_result += '\033[1;31m---- add balance Vuln Check ! ----\033[0m' + '\n'
+            payload_result += 'Auto Building Test Payload :' + '\n'
+
+            check_result = True
+            
+            model_data = solver.model()
+
+            for key_index in model_data :
+                if str(key_index) == 'calldata' :
+                    calldata_array = []
+                    
+                    for i in range(opcode_express.opcode_call_data_config.LENGTH) :
+                        calldata_array.append(int(str(model_data.eval(input_data['calldata'][i]))))
+                    
+                    value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                else :
+                    value = hex(int(str(model_data[key_index])))
+                
+                payload_result += '033[1;34m>>' + str(key_index) + str(value) + '\033[0m' + '\n'
+                print payload_result
+        return check_result,payload_result
     
 #     @staticmethod
 #     def transfer_overflow_check(state_object,address_object,check_object) :
@@ -903,7 +997,7 @@ class vuln_checker :
         check_result = False
 
         if  not opcode_express.is_z3_express(address_object) :
-            return False
+            return False,''
 
         solver = z3.Solver()
 
@@ -911,11 +1005,12 @@ class vuln_checker :
             solver.add(format_to_bool(express_data))
 
         check_express = address_object
+        payload_result = ''
         solver.add(check_express == opcode_express.DEFAULT_INPUT_ADDRESS)
 
         if z3.sat == solver.check() :
-            print '\033[1;31m---- Arbitrarily Self-Destruct Vuln Check ! ----\033[0m'
-            print 'Auto Building Test Payload :'
+            payload_result += '\033[1;31m---- Arbitrarily Self-Destruct Vuln Check ! ----\033[0m' + '\n'
+            payload_result += 'Auto Building Test Payload :' + '\n'
 
             check_result = True
             model_data = solver.model()
@@ -931,16 +1026,16 @@ class vuln_checker :
                 else :
                     value = hex(int(str(model_data[key_index])))
                 
-                print '\033[1;34m>>',key_index,value,'\033[0m'
+                payload_result += '\033[1;34m>>' + str(key_index) + str(value) + '\033[0m' + '\n'
 
-        return check_result
+        return check_result,payload_result
 
     @staticmethod
     def arbitrarily_call(state_object,address_object,input_data) :
         check_result = False
 
         if not opcode_express.is_z3_express(address_object) :
-            return False
+            return False,''
 
         solver = z3.Solver()
 
@@ -948,11 +1043,12 @@ class vuln_checker :
             solver.add(format_to_bool(express_data))
 
         check_express = address_object
+        payload_result = ''
         solver.add(check_express == opcode_express.DEFAULT_INPUT_CONTRACT_ADDRESS)
 
         if z3.sat == solver.check() :
-            print '\033[1;31m---- Arbitrarily CALL Vuln Check ! ----\033[0m'
-            print 'Auto Building Test Payload :'
+            payload_result += '\033[1;31m---- Arbitrarily CALL Vuln Check ! ----\033[0m' + '\n'
+            payload_result += 'Auto Building Test Payload :' + '\n'
 
             check_result = True
             model_data = solver.model()
@@ -968,46 +1064,38 @@ class vuln_checker :
                 else :
                     value = hex(int(str(model_data[key_index])))
                 
-                print '\033[1;34m>>',key_index,value,'\033[0m'
+                payload_result += '\033[1;34m>>' + str(key_index) + str(value) + '\033[0m' + '\n'
 
-        return check_result
+        return check_result,payload_result
 
-#     @staticmethod
-#     def print_input(state_object) :
-#         import z3
+    @staticmethod
+    def print_input(state_object,input_data) :
+        solver = z3.Solver()
 
-#         z3_init_list = opcode_express.make_z3_init()
+        for express_data in state_object.express_list :
+            solver.add(format_to_bool(express_data))
 
-#         for init_index in z3_init_list :
-#             exec(init_index)
+        if z3.sat == solver.check() :
+            print '\033[1;31m---- print input ----\033[0m' + '\n'
+            print 'Auto Building Test Payload :' + '\n'
 
-#         solver = z3.Solver()
+            check_result = True
+            model_data = solver.model()
 
-#         for express_index in state_object.express_list :
-#             express_data = express_index.make_express()
-#             # print express_data
-#             exec('solver.add(%s)' % (express_data))
-
-#         if z3.sat == solver.check() :
-#             print '\033[1;31m---- print input ----\033[0m'
-
-#             model_data = solver.model()
-
-#             for key_index in model_data :
-#                 if str(key_index) == 'calldata' :
-#                     calldata_array = []
+            for key_index in model_data :
+                if str(key_index) == 'calldata' :
+                    calldata_array = []
                     
-#                     for i in range(opcode_express.opcode_call_data.LENGTH) :
-#                         calldata_array.append(int(str(model_data.eval(calldata[i]))))
+                    for i in range(opcode_express.opcode_call_data_config.LENGTH) :
+                        calldata_array.append(int(str(model_data.eval(input_data['calldata'][i]))))
                     
-#                     value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
-#                 else :
-#                     value = hex(int(str(model_data[key_index])))
+                    value = '0x' + ''.join('{:02x}'.format(x) for x in calldata_array)
+                else :
+                    value = hex(int(str(model_data[key_index])))
                 
-#                 print '\033[1;34m>>',key_index,value,'\033[0m'
-#         else :
-#             print '---- print input fail ----'
-#         return True
+                print '\033[1;34m>>',key_index,value,'\033[0m','\n'
+
+        return True
     
 #     @staticmethod
 #     def div_zero_check(state_object,number_object) :

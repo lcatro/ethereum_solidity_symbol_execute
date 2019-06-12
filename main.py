@@ -74,7 +74,7 @@ def split_contract_code(target_disassmbly_object) :  #  Return (Contract_init,Co
 
     return (False,target_disassmbly_object)
 
-def try_audit(file_path) :
+def try_audit(file_path, init_data = False) :
     contract_object = disassmbly_contract(file_path)
     contract_init_code,contract_runtime_code = split_contract_code(contract_object)
 
@@ -90,7 +90,7 @@ def try_audit(file_path) :
         contract_init_code_executor.run()
     '''
     
-    contract_runtime_code_executor = executor.executor(contract_runtime_code,state_object,context.execute_context())
+    contract_runtime_code_executor = executor.executor(contract_runtime_code,state_object,context.execute_context(),False,False,False,init_data)
 
     contract_runtime_code_executor.run()
 
@@ -106,9 +106,10 @@ if __name__ == '__main__' :
     #try_audit('./example/test_code_no_div_zero.txt')
     #try_audit('./example/test_code_no_overflow.txt')
     #try_audit('./example/test_code_overflow.txt')
-    try_audit('./example/test_code_overflow2.txt')
+    #init_data = {'calldata': '0x83f12fec000000000000000000000000000000000000000000000000000000000000004080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000ca35b7d915458ef540ade6068dfe2f44e8fa733c000000000000000000000000ca35b7d915458ef540ade6068dfe2f44e8fa733c'}
+    #try_audit('./example/test_code_overflow2.txt')
     #try_audit('./example/test_code_selfdestruct.txt')
     #try_audit('./example/test_code_call_from_calldata.txt')
     #try_audit('./example/test_code_call_from_init_no_control.txt')
-    #try_audit('./example/test_code_bec.txt')
+    try_audit('./example/test_code_bec.txt')
     #try_audit('./example/test_code2.txt')
