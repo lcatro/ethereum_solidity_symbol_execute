@@ -124,11 +124,14 @@ def build_express_list(express_list) :
 
 class executor :
 
-    def __init__(self,code_object,state_object,execute_context,contract_address = False,input_data = False,jump_count = False,init_data = False,vuln_data = False) :
+    def __init__(self,code_object,state_object,execute_context,contract_address = False,input_data = False,jump_count = False,init_data = False,vuln_data = False,explore_function = False) :
         self.code_object = code_object
         self.state_object = state_object
         self.execute_context = execute_context
         self.input_data = {}
+        self.execute_path = []
+        self.all_path_record = []
+        self.explore_function = explore_function
 
         if vuln_data :
             self.vuln_data = vuln_data
@@ -175,7 +178,8 @@ class executor :
                                 copy.deepcopy(self.input_data),
                                 copy.deepcopy(self.jump_count),
                                 False,
-                                self.vuln_data)
+                                self.vuln_data,
+                                self.explore_function)
 
         return new_executor
 
@@ -187,7 +191,7 @@ class executor :
         else :
             self.jump_count[tag] = 1
         
-        print 'jump count %s %s' % (tag,self.jump_count[tag])
+        #print 'jump count %s %s' % (tag,self.jump_count[tag])
         
         if self.jump_count[tag] < 10 :
             return False
@@ -225,7 +229,7 @@ class executor :
                                                           #  see example : z3.Not((z3.Not((0x03 < (0x01 + 0x02)))))
             # condition_value = execute_real_express(condition)
             condition = z3.simplify(format_to_bool(condition))
-            print condition
+            #print condition
             if condition :
                 true_condition_check_success = True
                 false_condition_check_success = False
@@ -253,14 +257,25 @@ class executor :
 
         return true_condition_check_success,false_condition_check_success
 
-    def execute_opcode(self,opcode_object) :
+    def check_is_transfer_function_entry_point(self,check_condition) :
+        check_condition = str(check_condition)
+
+        if  'Concat' in check_condition and \
+            'calldata' in check_condition and \
+            '2835717307' in check_condition :
+            return True
+
+        return False
+
+    def execute_opcode(self,opcode_object,is_valid_vuln = True,debug_output = False) :
         opcode_name = opcode_object.get_opcode()
         next_pc = -1
 
         self.state_object.add_execute_code(opcode_object)
         self.execute_context.add_instrutment_count()
 
-        print hex(opcode_object.get_address()),opcode_name,opcode_object.get_opcode_data()
+        if debug_output :
+            print hex(opcode_object.get_address()),opcode_name,opcode_object.get_opcode_data()
 
         if opcode_name.startswith('PUSH') :
             data = opcode_object.get_opcode_data(0)
@@ -345,9 +360,10 @@ class executor :
             self.state_object.store.set(sstore_target_address,sstore_target_data)
             
             if opcode_express.is_z3_express(sstore_target_address) :
-                vulnable,vuln_data = vuln_checker.change_storage_check(self.state_object,sstore_target_address,sstore_target_data,self.input_data)
-                if vulnable :
-                    self.vuln_data += vuln_data + '\n'
+                if is_valid_vuln :
+                    vulnable,vuln_data = vuln_checker.change_storage_check(self.state_object,sstore_target_address,sstore_target_data,self.input_data)
+                    if vulnable :
+                        self.vuln_data += vuln_data + '\n'
             #     vuln_checker.transfer_overflow_check(self.state_object,sstore_target_address,sstore_target_data)
 
             next_pc = opcode_object.get_address() + 1
@@ -461,13 +477,18 @@ class executor :
             jump_next_pc_address = self.state_object.stack.pop_data()
             check_condition = self.state_object.stack.pop_data()
             nojump_next_pc_address = opcode_object.get_address() + 1
-            
             jump_next_pc_address = jump_next_pc_address.as_long()
 
             if not 'JUMPDEST' == self.code_object.get_disassmbly_by_address(jump_next_pc_address).get_opcode() :
                 print 'JUMP Target Opcode Except ..'
 
                 exit()
+
+            if self.check_is_transfer_function_entry_point(check_condition) :
+                if is_valid_vuln :
+                    if not vuln_checker.transfer_check_fake_withdraw(self,jump_next_pc_address) :
+                        print '\033[1;31m---- Transfer Fake Withdraw Check ! ----\033[0m'
+                        print 'transfer_check_fake_withdraw : exist' + '\n'
 
             self.execute_context.add_branch_count()
 
@@ -487,28 +508,56 @@ class executor :
 
             if not opcode_express.is_z3_express(check_condition) :  #  check is real true/false condition ..
                 if true_condition :
-                    print 'jump true'
+                    #print 'jump true'
                     if not self.check_infinite_loop(opcode_object.get_address(), jump_next_pc_address) :
                         true_branch_executor = self.copy_executor()
-                        true_branch_executor.run(jump_next_pc_address)
+
+                        true_branch_executor.run(jump_next_pc_address,is_valid_vuln = is_valid_vuln,debug_output = debug_output)
+
+                        if true_branch_executor.all_path_record :
+                            for path_index in true_branch_executor.all_path_record :
+                                self.all_path_record.append(self.execute_path + path_index)
+                        else :
+                            self.all_path_record.append(self.execute_path + true_branch_executor.execute_path)
                 elif false_condition :
-                    print 'jump false'
+                    #print 'jump false'
                     if not self.check_infinite_loop(opcode_object.get_address(), jump_next_pc_address) :
                         false_branch_executor = self.copy_executor()
-                        false_branch_executor.run(nojump_next_pc_address)
+
+                        false_branch_executor.run(nojump_next_pc_address,is_valid_vuln = is_valid_vuln,debug_output = debug_output)
+
+                        if false_branch_executor.all_path_record :
+                            for path_index in false_branch_executor.all_path_record :
+                                self.all_path_record.append(self.execute_path + path_index)
+                        else :
+                            self.all_path_record.append(self.execute_path + false_branch_executor.execute_path)
             else :
-                print 'jump true and false:',true_condition,false_condition 
+                #print 'jump true and false:',true_condition,false_condition 
                 if true_condition :
                     if not self.check_infinite_loop(opcode_object.get_address(), jump_next_pc_address) :
                         true_branch_executor = self.copy_executor()
+
                         true_branch_executor.state_object.add_express(check_condition)
-                        true_branch_executor.run(jump_next_pc_address)
+                        true_branch_executor.run(jump_next_pc_address,is_valid_vuln = is_valid_vuln,debug_output = debug_output)
+
+                        if true_branch_executor.all_path_record :
+                            for path_index in true_branch_executor.all_path_record :
+                                self.all_path_record.append(self.execute_path + path_index)
+                        else :
+                            self.all_path_record.append(self.execute_path + true_branch_executor.execute_path)
 
                 if false_condition :
                     if not self.check_infinite_loop(opcode_object.get_address(), jump_next_pc_address) :
                         false_branch_executor = self.copy_executor()
+
                         false_branch_executor.state_object.add_express(opcode_express.opcode_logic_not(check_condition))
-                        false_branch_executor.run(nojump_next_pc_address)
+                        false_branch_executor.run(nojump_next_pc_address,is_valid_vuln = is_valid_vuln,debug_output = debug_output)
+
+                        if false_branch_executor.all_path_record :
+                            for path_index in false_branch_executor.all_path_record :
+                                self.all_path_record.append(self.execute_path + path_index)
+                        else :
+                            self.all_path_record.append(self.execute_path + false_branch_executor.execute_path)
 
             return -1
         elif 'JUMP' == opcode_name :
@@ -538,9 +587,12 @@ class executor :
             call_outsize = self.state_object.stack.pop_data()
             # todo push call result 0 success 1 fail
             self.state_object.stack.push_data(0)
-            vulnable,vuln_data = vuln_checker.arbitrarily_call(self.state_object,call_address,self.input_data)
-            if vulnable :
-                self.vuln_data += vuln_data + '\n'
+
+            if is_valid_vuln :
+                vulnable,vuln_data = vuln_checker.arbitrarily_call(self.state_object,call_address,self.input_data)
+
+                if vulnable :
+                    self.vuln_data += vuln_data + '\n'
 
             next_pc = opcode_object.get_address() + 1
         elif 'JUMPDEST' == opcode_name :
@@ -649,7 +701,9 @@ class executor :
             copy_to_addr   = self.state_object.stack.pop_data()
             copy_from_addr = self.state_object.stack.pop_data()
             copy_length    = self.state_object.stack.pop_data()
-            vuln_checker.print_input(self.state_object,self.input_data)
+
+            if is_valid_vuln :
+                vuln_checker.print_input(self.state_object,self.input_data)
             # self.input_data['memory'] = opcode_express.opcode_return_data_copy(self.input_data['calldata'],
             #                                      self.input_data['memory'],
             #                                      target_memory,
@@ -748,9 +802,11 @@ class executor :
         elif 'SELFDESTRUCT' == opcode_name :
             target_address = self.state_object.stack.pop_data()
 
-            vulnable,vuln_data = vuln_checker.arbitrarily_selfdestruct(self.state_object,target_address,self.input_data)
-            if vulnable :
-                self.vuln_data += vuln_data + '\n'
+            if is_valid_vuln :
+                vulnable,vuln_data = vuln_checker.arbitrarily_selfdestruct(self.state_object,target_address,self.input_data)
+
+                if vulnable :
+                    self.vuln_data += vuln_data + '\n'
 
             return execute_selfdestruct()
         elif 'REVERT' == opcode_name :
@@ -763,8 +819,8 @@ class executor :
             #self.state_object.show_code_stream()
             #self.state_object.show_express()
             #self.state_object.store.print_store_make_express()
-            if len(self.vuln_data) > 0 :
-                print self.vuln_data
+            #if len(self.vuln_data) > 0 :
+            #    print self.vuln_data
         
             return execute_return()
         elif 'STOP' == opcode_name :
@@ -792,7 +848,8 @@ class executor :
                 if log_count == 4 and i == 3 :
                     value = temp
             
-            vuln_checker.add_balance_check(self.state_object,topic,value,self.input_data)
+            if is_valid_vuln :
+                vuln_checker.add_balance_check(self.state_object,topic,value,self.input_data)
             
             next_pc = opcode_object.get_address() + 1
         else :
@@ -807,13 +864,37 @@ class executor :
 
         return next_pc
 
-    def run(self,pc = 0) :
+    '''
+
+    explore is a function 
+
+    def explore(executor,pc,current_opcode) :  # return True/False
+        ...
+        return True
+
+    '''
+
+    def run(self,pc = 0,explore = False,is_valid_vuln = True,debug_output = False) :
         opcode_address_list = self.code_object.get_disassmbly_address_list()
+
+        if explore :
+            self.explore_function = explore
+
+        is_explore_success = False
+        execute_opcode_record = []
 
         while pc in opcode_address_list :
             current_opcode = self.code_object.get_disassmbly_by_address(pc)
+
+            execute_opcode_record.append(current_opcode)
+            self.execute_path.append(current_opcode)
+
+            if self.explore_function and not is_explore_success :
+                if self.explore_function(self,pc,current_opcode) :
+                    is_explore_success = True
+
             try :
-                pc = self.execute_opcode(current_opcode)
+                pc = self.execute_opcode(current_opcode,is_valid_vuln = is_valid_vuln,debug_output = debug_output)
             except KeyboardInterrupt:
                 raise
             except :
@@ -827,6 +908,11 @@ class executor :
                     pass
                 elif pc.__class__ == execute_revert :
                     pass
+
+        if not is_explore_success :
+            return []
+
+        return execute_opcode_record
 
     def get_execute_branch_count(self) :
         return self.execute_context.get_branch_count()
@@ -912,7 +998,7 @@ class vuln_checker :
         solver.add(input_data['caller'] == opcode_express.DEFAULT_INPUT_ADDRESS)
         solver.add(data_express > 0)
         # Transfer Event
-        solver.add(topic_express == 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef)
+        solver.add(topic_express == opcode_express.TRANSFER_LOG_TOPIC_ADDRESS)
         # exec('solver.add((%s) == %s)' % (address_express,opcode_express.DEFAULT_INPUT_ADDRESS))
         # exec('solver.add(%s > 0)' % (data_express))
         payload_result = ''
@@ -1067,6 +1153,52 @@ class vuln_checker :
                 payload_result += '\033[1;34m>>' + str(key_index) + str(value) + '\033[0m' + '\n'
 
         return check_result,payload_result
+
+    @staticmethod
+    def transfer_check_fake_withdraw(executor_object,transfer_function_entry) :
+        check_executor_object = executor_object.copy_executor()
+        
+        check_executor_object.state_object.store.set_default_return_value(0x1000) # set default user balance
+        check_executor_object.run(transfer_function_entry,is_valid_vuln = False)
+
+        def explore_transfer_log(executor_object,pc,current_opcode) :
+            if not current_opcode.get_opcode().startswith('LOG') :
+                return False
+
+            log_count = int(current_opcode.get_opcode()[ 3 : ])
+            topic_address = executor_object.state_object.stack.get_top_index_data(2)
+            topic_address = topic_address.as_long()
+
+            if topic_address == opcode_express.TRANSFER_LOG_TOPIC_ADDRESS :
+                return True
+
+            return False
+
+        explore_executor_object = executor_object.copy_executor()
+
+        explore_executor_object.state_object.store.set_default_return_value(0x1000)
+        transefer_path = explore_executor_object.run(transfer_function_entry,is_valid_vuln = False,explore = explore_transfer_log)
+
+        for sub_path_index in check_executor_object.all_path_record :
+            is_transfer_path = False
+
+            for success_transfer_path_index in explore_executor_object.all_path_record :
+                if sub_path_index == success_transfer_path_index :
+                    is_transfer_path = True
+
+                    break
+
+            if is_transfer_path :
+                if not ('REVERT' == sub_path_index[-1].get_opcode() or \
+                    'INVALID' == sub_path_index[-1].get_opcode()) :
+                    return False
+
+        for success_transfer_path_index in explore_executor_object.all_path_record :
+            if not ('RETURN' == success_transfer_path_index[-1].get_opcode() or \
+                'STOP' == success_transfer_path_index[-1].get_opcode()) :
+                return False
+
+        return True
 
     @staticmethod
     def print_input(state_object,input_data) :

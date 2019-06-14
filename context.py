@@ -298,6 +298,12 @@ class stack :
 
         return old_stack_data
 
+    def get_top_index_data(self,index) :
+        if not index < self.point :
+            return False
+
+        return self.memory_data[ self.point - index]
+
     def dup_data(self,dup_number) :
         if dup_number > self.point :
             return
@@ -329,10 +335,14 @@ class store :
         self.store_init = {}
         self.req = web3_req
         self.contract_address = contract_address
+        self.default_return_value = '0x0'
 
     def set_init_data(self,init_data) :
         self.store_data = init_data
         self.store_init = init_data
+
+    def set_default_return_value(self,data) :
+        self.default_return_value = str(data)
 
     def set(self,address_hex,data) :
         if opcode_express.is_z3_express(address_hex) :
@@ -344,7 +354,7 @@ class store :
             address_hex = str(address_hex)
         
         if not address_hex :
-            return '0x0'
+            return self.default_return_value
 
         if address_hex in self.store_data.keys() :
             return self.store_data[address_hex]
@@ -354,7 +364,7 @@ class store :
             print address_hex,self.store_data[address_hex]
             return self.store_data[address_hex]
 
-        return '0x0'
+        return self.default_return_value
 
     def get_init_data(self) :
         return self.store_init

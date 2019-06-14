@@ -112,4 +112,6 @@ if __name__ == '__main__' :
     #try_audit('./example/test_code_call_from_calldata.txt')
     #try_audit('./example/test_code_call_from_init_no_control.txt')
     try_audit('./example/test_code_bec.txt')
+    #try_audit('./example/test_code_fake_transefer.txt')
+    #try_audit('./temp/real_fake_transfer.txt')
     #try_audit('./example/test_code2.txt')
